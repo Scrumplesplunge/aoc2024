@@ -1,0 +1,8 @@
+[submodule "third_party/pico-sdk"]
+	path = third_party/pico-sdk
+	url = git@github.com:raspberrypi/pico-sdk.git
+	branch = master
+[submodule "third_party/picotool"]
+	path = third_party/picotool
+	url = git@github.com:raspberrypi/picotool.git
+	branch = master
