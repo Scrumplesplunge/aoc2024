@@ -16,3 +16,4 @@ pico_sdk_init()
 
 add_subdirectory(common)
 add_subdirectory(pico)
+add_subdirectory(solutions)
