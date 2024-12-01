@@ -10,9 +10,6 @@
 // The pico requires 4-byte alignment.
 #define MEM_ALIGNMENT               4
 
-// Configure the allocator.
-#define MEM_LIBC_MALLOC             1
-
 // Enable and configure TCP support.
 #define LWIP_TCP                    1
 #define TCP_MSS                     1460

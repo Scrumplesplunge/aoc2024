@@ -2,6 +2,10 @@
 #ifndef AOC2024_WIFI_HPP_
 #define AOC2024_WIFI_HPP_
 
+// WiFi network credentials.
+#define WIFI_SSID "Example SSID"
+#define WIFI_PASS "Example Password"
+
 // Current country, which is needed to comply with local radio transmission
 // regulations. This can be left as CYW43_COUNTRY_WORLDWIDE, but the performance
 // will suffer, so it is better to specify a country explicitly. See
