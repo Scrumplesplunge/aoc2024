@@ -86,7 +86,10 @@ Task<void> Serve() {
   while (true) {
     std::println("Waiting for connection...");
     tcp::Socket socket = co_await acceptor.Accept();
+    SetLed(true);
+    std::println("Solving...");
     co_await Day01(socket);
+    SetLed(false);
   }
 }
 
@@ -97,14 +100,11 @@ void Run() {
   SetLed(false);
 
   Task<void> server = Serve();
-  server.Start([] { std::println("Stopped serving."); });
-
-  bool state = false;
-  while (true) {
-    SetLed(state);
-    state = !state;
-    sleep_ms(500);
-  }
+  server.Start([] {
+    std::println("Stopped serving.");
+    std::exit(1);
+  });
+  while (true) sleep_ms(60000);
 }
 
 }  // namespace

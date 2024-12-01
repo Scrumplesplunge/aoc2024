@@ -9,12 +9,10 @@ namespace aoc2024::tcp {
 Socket::~Socket() {
   if (!handle_) return;
   UnsetCallbacks();
-  std::println("closing connection");
   // If we successfully close the socket, the PCB will be freed in the
   // background and we should no longer touch it. Otherwise, we will let it be
   // automatically aborted by the handle.
   if (err_t error = tcp_close(handle_.get()); error == ERR_OK) {
-    std::println("closed cleanly");
     handle_.release();
   }
 }
@@ -56,7 +54,6 @@ Socket::Socket(Handle handle) : handle_(std::move(handle)) {
 
 void Socket::OnSent(u16_t bytes) {
   assert(!send_eof_);
-  std::println("OnSent(bytes={})", bytes);
   if (bytes == 0) {
     // (I am assuming that) 0 bytes sent only happens if the socket has been
     // closed for sending.
@@ -71,11 +68,9 @@ void Socket::OnSent(u16_t bytes) {
 void Socket::OnReceived(Buffer data) {
   assert(!receive_eof_);
   if (!data) {
-    std::println("OnReceived(data=null)");
     receive_eof_ = true;
     return;
   }
-  std::println("OnReceived(data=<pbuf with tot_len={}>)", data->tot_len);
   if (received_) {
     pbuf_cat(received_.get(), data.release());
   } else {
@@ -89,8 +84,6 @@ void Socket::ReadData() {
   assert(received_ || receive_eof_);
   if (!received_) return pending_read_->Done();
   std::span<char> destination = pending_read_->unused();
-  std::println("ReadData() received_->tot_len = {}, unused.size() = {}",
-               received_->tot_len, destination.size());
   // pbufs operate with 16-bit sizes, so the maximum amount we can read in
   // a single go is 65535 bytes.
   if (destination.size() > received_->tot_len) {
@@ -105,7 +98,6 @@ void Socket::ReadData() {
 
 void Socket::SetCallbacks() {
   if (!handle_) return;
-  std::println("configuring callbacks for socket {}", (void*)this);
   tcp_arg(handle_.get(), this);
   tcp_sent(handle_.get(), [](void* self, tcp_pcb* pcb, u16_t sent) -> err_t {
     Socket& socket = *reinterpret_cast<Socket*>(self);
@@ -191,13 +183,10 @@ void Acceptor::UnsetCallbacks() {
 }
 
 void Acceptor::OnAccept(Socket::Handle client, err_t error) {
-  std::println("OnAccept(client={}, error={})", (void*)client.get(), error);
   if (!pending_accept_) {
     if (error) {
       std::println("Ignoring accept error {} with no pending accept call.",
                    error);
-    } else {
-      std::println("Ignoring connection with no pending accept call.");
     }
     return;
   }
@@ -211,7 +200,6 @@ void Acceptor::OnAccept(Socket::Handle client, err_t error) {
 bool Socket::ReadAwaitable::await_ready() const { return false; }
 
 void Socket::ReadAwaitable::await_suspend(std::coroutine_handle<> awaiter) {
-  std::println("Suspending reader");
   awaiter_ = awaiter;
   assert(!socket_.pending_read_);
   socket_.pending_read_ = this;
@@ -219,7 +207,6 @@ void Socket::ReadAwaitable::await_suspend(std::coroutine_handle<> awaiter) {
 }
 
 std::span<char> Socket::ReadAwaitable::await_resume() {
-  std::println("Resuming reader (num_bytes_={})", num_bytes_);
   if (error_ != ERR_OK) throw SocketError("Read error");
   return buffer_.subspan(0, num_bytes_);
 }
@@ -248,7 +235,6 @@ void Socket::ReadAwaitable::Fail(err_t error) {
 bool Socket::WriteAwaitable::await_ready() const { return bytes_.empty(); }
 
 void Socket::WriteAwaitable::await_suspend(std::coroutine_handle<> awaiter) {
-  std::println("Suspending writer");
   awaiter_ = awaiter;
   assert(!socket_.pending_write_);
   socket_.pending_write_ = this;
@@ -256,7 +242,6 @@ void Socket::WriteAwaitable::await_suspend(std::coroutine_handle<> awaiter) {
 }
 
 void Socket::WriteAwaitable::await_resume() {
-  std::println("Resuming writer");
   if (error_ != ERR_OK) throw SocketError("Write error");
 }
 
@@ -298,14 +283,12 @@ void Socket::WriteAwaitable::Fail(err_t error) {
 bool Acceptor::AcceptAwaitable::await_ready() const { return false; }
 
 void Acceptor::AcceptAwaitable::await_suspend(std::coroutine_handle<> awaiter) {
-  std::println("Suspending accept awaiter");
   awaiter_ = awaiter;
   assert(!acceptor_.pending_accept_);
   acceptor_.pending_accept_ = this;
 }
 
 Socket Acceptor::AcceptAwaitable::await_resume() {
-  std::println("Resuming accept awaiter");
   if (result_) {
     return std::move(*result_);
   } else {
