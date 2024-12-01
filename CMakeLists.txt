@@ -14,4 +14,5 @@ add_compile_options(
 )
 pico_sdk_init()
 
+add_subdirectory(common)
 add_subdirectory(pico)
