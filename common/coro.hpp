@@ -56,29 +56,6 @@ class [[nodiscard]] Task {
   std::coroutine_handle<promise_type> handle_;
 };
 
-// An Event is a single-producer, single-consumer awaitable which can be
-// resolved by a callback:
-//
-//     Event event;
-//     RunWithCallback([](int x) { event(x); });
-//     int x = co_await event;
-//
-// This type is not currently thread-safe: resolving the event from another
-// thread without synchronisation will result in undefined behaviour.
-template <typename T>
-class [[nodiscard]] Event {
- public:
-  bool await_ready() const;
-  std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle);
-  T await_resume();
-
-  void Trigger(T value);
-
- private:
-  std::coroutine_handle<> awaiter_;
-  std::optional<T> value_;
-};
-
 struct promise_base {
   enum State : char {
     kNotStarted,  // Has not been started.
@@ -223,37 +200,6 @@ void Task<T>::Start(F&& done) {
     done();
   };
   handle_.resume();
-}
-
-template <typename T>
-bool Event<T>::await_ready() const {
-  assert(!awaiter_);
-  return value_.has_value();
-}
-
-template <typename T>
-std::coroutine_handle<> Event<T>::await_suspend(
-    std::coroutine_handle<> awaiter) {
-  assert(!awaiter_);
-  if (value_) {
-    return awaiter;
-  } else {
-    awaiter_ = awaiter;
-    return std::noop_coroutine();
-  }
-}
-
-template <typename T>
-T Event<T>::await_resume() {
-  assert(value_);
-  return std::move(*value_);
-}
-
-template <typename T>
-void Event<T>::Trigger(T value) {
-  assert(!value_);
-  value_.emplace(std::move(value));
-  if (awaiter_) awaiter_.resume();
 }
 
 }  // namespace aoc2024
