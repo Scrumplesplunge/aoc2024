@@ -40,8 +40,22 @@ Task<void> Serve() {
     std::println("Waiting for connection...");
     tcp::Socket socket = co_await acceptor.Accept();
     SetLed(true);
-    std::println("Solving...");
-    co_await Solve(/*day=*/1, socket);
+    char buffer[3];
+    std::span<const char> header = co_await socket.Read(buffer);
+    if (header.size() != 3 ||
+        !('0' <= header[0] && header[0] <= '9') ||
+        !('0' <= header[1] && header[1] <= '9') ||
+        header[2] != '\n') {
+      co_await socket.Write("bad header\n");
+      continue;
+    }
+    const int day = 10 * (header[0] - '0') + (header[1] - '0');
+    if (!(1 <= day && day <= 25)) {
+      co_await socket.Write("bad day\n");
+      continue;
+    }
+    std::println("Solving day {}...", day);
+    co_await Solve(day, socket);
     SetLed(false);
   }
 }
