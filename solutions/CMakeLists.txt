@@ -6,6 +6,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../pico")
 add_library(solutions OBJECT
     day01.cpp
     day02.cpp
+    day03.cpp
 )
 target_link_libraries(solutions
     PRIVATE coro tcp pico_cyw43_arch_lwip_threadsafe_background_headers
