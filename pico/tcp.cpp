@@ -67,14 +67,14 @@ void Socket::OnSent(u16_t bytes) {
 
 void Socket::OnReceived(Buffer data) {
   assert(!receive_eof_);
-  if (!data) {
-    receive_eof_ = true;
-    return;
-  }
-  if (received_) {
-    pbuf_cat(received_.get(), data.release());
+  if (data) {
+    if (received_) {
+      pbuf_cat(received_.get(), data.release());
+    } else {
+      received_ = std::move(data);
+    }
   } else {
-    received_ = std::move(data);
+    receive_eof_ = true;
   }
   if (pending_read_) ReadData();
 }
