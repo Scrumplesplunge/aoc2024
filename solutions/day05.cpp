@@ -14,8 +14,8 @@ Task<void> Day05(tcp::Socket& socket) {
   const std::string_view input(co_await socket.Read(buffer));
   assert(input.size() < 16000);  // If we hit 16k then we may have truncated.
 
-  // `dependencies[b]` is a list of values `a` such that `a|b` is a constraint.
-  std::vector<int> dependencies[100];
+  // ordered[a][b] is true if `a|b` is a constraint.
+  bool ordered[100][100] = {};
   // Parse the list of dependencies.
   const char* i = input.data();
   const char* const end = i + input.size();
@@ -27,8 +27,7 @@ Task<void> Day05(tcp::Socket& socket) {
            i[5] == '\n');
     const int a = 10 * (i[0] - '0') + (i[1] - '0');
     const int b = 10 * (i[3] - '0') + (i[4] - '0');
-    std::println("{}|{}", a, b);
-    dependencies[b].push_back(a);
+    ordered[a][b] = true;
     i += 6;
   }
   assert(*i == '\n');
@@ -52,15 +51,12 @@ Task<void> Day05(tcp::Socket& socket) {
       if (lookahead == '\n') break;
       assert(lookahead == ',');
     }
-    for (int i = 0; i < num_values; i++) {
-      std::print(" {}", values[i]);
-    }
 
     bool correct = true;
     for (int i = 1; i < num_values; i++) {
       // Loop invariant: values[0..i) are sorted according to the constraints.
       for (int j = 0; j < i; j++) {
-        if (std::ranges::contains(dependencies[values[j]], values[i])) {
+        if (ordered[values[i]][values[j]]) {
           // values[j] needs to be after values[i] and is the leftmost element
           // of values[0..i) which has that property. Insert right before it.
           std::rotate(values + j, values + i, values + i + 1);
@@ -69,11 +65,6 @@ Task<void> Day05(tcp::Socket& socket) {
         }
       }
     }
-    std::print(" ->");
-    for (int i = 0; i < num_values; i++) {
-      std::print(" {}", values[i]);
-    }
-    std::println("");
     if (correct) {
       part1 += values[num_values / 2];
     } else {
