@@ -5,6 +5,7 @@
 #include "wifi.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <pico/stdlib.h>
 #include <pico/cyw43_arch.h>
 #include <print>
@@ -55,7 +56,13 @@ Task<void> Serve() {
       continue;
     }
     std::println("Solving day {}...", day);
+    using Clock = std::chrono::steady_clock;
+    using Time = Clock::time_point;
+    using std::chrono_literals::operator""us;
+    const Time start = Clock::now();
     co_await Solve(day, socket);
+    const Time end = Clock::now();
+    std::println("Solved in {}us", (end - start) / 1us);
     SetLed(false);
   }
 }
