@@ -114,12 +114,12 @@ bool Loops(VisitedSet visited, Vec2 position, Direction direction,
     if (grid[next] == '#') {
       // Rotate 90 degrees.
       direction = Rotate(direction);
+      if (visited.contains(position, direction)) return true;
+      visited.insert(position, direction);
     } else {
       // Move forwards.
       position = next;
     }
-    if (visited.contains(position, direction)) return true;
-    visited.insert(position, direction);
   }
 }
 
