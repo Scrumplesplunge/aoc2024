@@ -1,4 +1,6 @@
 .*
 !.gitignore
+!.cookie.example
 /build
 /wifi.hpp
+/puzzles/*.input
