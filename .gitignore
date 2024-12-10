@@ -4,3 +4,4 @@
 /build
 /wifi.hpp
 /puzzles/*.input
+/puzzles/*.test
