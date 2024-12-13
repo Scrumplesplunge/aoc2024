@@ -6,6 +6,7 @@
 
 #include "../common/api.hpp"
 #include "../common/coro.hpp"
+#include "../common/scan.hpp"
 #include "tcp.hpp"
 
 namespace aoc2024 {
@@ -15,68 +16,6 @@ using std::literals::operator""sv;
 
 struct Vec { std::int64_t x, y; };
 struct Machine { Vec a, b, prize; };
-
-template <typename T>
-bool ReadInt(std::string_view& input, T& result) {
-  auto [i, error] =
-      std::from_chars(input.data(), input.data() + input.size(), result);
-  if (error != std::errc()) return false;
-  input.remove_prefix(i - input.data());
-  return true;
-}
-
-bool ConsumePrefix(std::string_view& input, std::string_view prefix) {
-  if (!input.starts_with(prefix)) return false;
-  input.remove_prefix(prefix.size());
-  return true;
-}
-
-class ArgumentParser {
- public:
-  template <typename T>
-  explicit ArgumentParser(T& value) {
-    data_ = &value;
-    func_ = [](std::string_view& input, void* erased_output) -> bool {
-      return ReadInt(input, *reinterpret_cast<T*>(erased_output));
-    };
-  }
-
-  bool operator()(std::string_view& input) const { return func_(input, data_); }
-
- private:
-  void* data_;
-  bool (*func_)(std::string_view& format, void* data);
-};
-
-template <typename... Args>
-bool Scan(std::string_view input, std::string_view format, Args&... args) {
-  const ArgumentParser parsers[] = {ArgumentParser(args)...};
-  int next_arg = 0;
-  const int num_args = sizeof...(Args);
-  while (true) {
-    auto literal_end = format.find_first_of("{}");
-    if (literal_end == format.npos) literal_end = format.size();
-    if (!ConsumePrefix(input, format.substr(0, literal_end))) return false;
-    format.remove_prefix(literal_end);
-    if (format.empty()) return true;
-    assert(format.front() == '{' || format.front() == '}');
-    if (format.size() < 2) throw std::logic_error("bad format string");
-    if (format[0] == format[1]) {
-      // Parse an escaped literal like `{{` or `}}`.
-      if (!ConsumePrefix(input, format.substr(0, 1))) return false;
-      format.remove_prefix(2);
-    } else if (format[0] == '{') {
-      assert(format[1] == '}');
-      if (next_arg == num_args) {
-        throw std::runtime_error("too many placeholders");
-      }
-      if (!parsers[next_arg++](input)) return false;
-      format.remove_prefix(2);
-    } else {
-      throw std::logic_error("unescaped '}'");
-    }
-  }
-}
 
 Task<std::span<Machine>> ReadInput(tcp::Socket& socket,
                                    std::span<Machine> machines) {

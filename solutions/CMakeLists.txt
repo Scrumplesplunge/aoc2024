@@ -8,5 +8,5 @@ add_library(solutions OBJECT
     day08.cpp day09.cpp day10.cpp day11.cpp day12.cpp day13.cpp
 )
 target_link_libraries(solutions
-    PRIVATE coro tcp pico_cyw43_arch_lwip_threadsafe_background_headers
+    PRIVATE coro scan tcp pico_cyw43_arch_lwip_threadsafe_background_headers
 )
