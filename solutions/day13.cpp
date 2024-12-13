@@ -22,7 +22,11 @@ Task<std::span<Machine>> ReadInput(tcp::Socket& socket,
   const int max_machines = machines.size();
   int num_machines = 0;
   char buffer[22000];
-  const std::string_view input(co_await socket.Read(buffer));
+  std::string_view input(co_await socket.Read(buffer));
+  if (input.empty() || input.back() != '\n') {
+    throw std::runtime_error("bad input");
+  }
+  input.remove_suffix(1);
   for (const auto entry : std::ranges::views::split(input, "\n\n"sv)) {
     if (num_machines == max_machines) {
       throw std::runtime_error("too many machines");
