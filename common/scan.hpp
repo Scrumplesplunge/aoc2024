@@ -40,7 +40,7 @@ class ArgumentParser {
 };
 
 bool VScanPrefix(std::string_view& input, std::string_view format,
-           std::span<const ArgumentParser> args);
+                 std::span<const ArgumentParser> args);
 bool VScan(std::string_view input, std::string_view format,
            std::span<const ArgumentParser> args);
 
