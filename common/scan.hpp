@@ -39,8 +39,17 @@ class ArgumentParser {
   bool (*func_)(std::string_view& format, void* data);
 };
 
+bool VScanPrefix(std::string_view& input, std::string_view format,
+           std::span<const ArgumentParser> args);
 bool VScan(std::string_view input, std::string_view format,
            std::span<const ArgumentParser> args);
+
+template <Scannable... Args>
+bool ScanPrefix(std::string_view& input, std::string_view format,
+                Args&... args) {
+  const ArgumentParser parsers[] = {ArgumentParser(args)...};
+  return VScanPrefix(input, format, parsers);
+}
 
 template <Scannable... Args>
 bool Scan(std::string_view input, std::string_view format, Args&... args) {

@@ -12,10 +12,8 @@ bool ConsumePrefix(std::string_view& input, std::string_view prefix) {
   return true;
 }
 
-}  // namespace
-
-bool VScan(std::string_view input, std::string_view format,
-           std::span<const ArgumentParser> args) {
+bool VScanPrefixImpl(std::string_view& input, std::string_view format,
+                     std::span<const ArgumentParser> args) {
   int next_arg = 0;
   const int num_args = args.size();
   while (true) {
@@ -41,6 +39,21 @@ bool VScan(std::string_view input, std::string_view format,
       throw std::logic_error("unescaped '}'");
     }
   }
+}
+
+}  // namespace
+
+bool VScanPrefix(std::string_view& input, std::string_view format,
+                 std::span<const ArgumentParser> args) {
+  std::string_view copy = input;
+  if (!VScanPrefixImpl(copy, format, args)) return false;
+  input = copy;
+  return true;
+}
+
+bool VScan(std::string_view input, std::string_view format,
+           std::span<const ArgumentParser> args) {
+  return VScanPrefixImpl(input, format, args) && input.empty();
 }
 
 }  // namespace aoc2024
