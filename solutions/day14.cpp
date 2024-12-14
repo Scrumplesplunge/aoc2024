@@ -53,11 +53,6 @@ Task<std::span<Robot>> ReadInput(tcp::Socket& socket,
 constexpr Vec kGridSize = {101, 103};
 constexpr Vec kMiddle = kGridSize / 2;
 
-// 78001875 too low.
-//   (fixed bug with negative velocity values).
-// 231777252 too low.
-//   (fixed copy-paste bug with the incorrect middle value for y).
-// 236628054 correct.
 std::int64_t Part1(std::span<const Robot> robots) {
   std::int64_t top_left = 0, top_right = 0, bottom_left = 0, bottom_right = 0;
   for (Robot robot : robots) {
@@ -71,8 +66,6 @@ std::int64_t Part1(std::span<const Robot> robots) {
     if (bottom && left) bottom_left++;
     if (bottom && right) bottom_right++;
   }
-  std::println("top_left={}, top_right={}, bottom_left={}, bottom_right={}",
-               top_left, top_right, bottom_left, bottom_right);
   return top_left * top_right * bottom_left * bottom_right;
 }
 
