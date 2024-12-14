@@ -78,18 +78,17 @@ std::int64_t Part1(std::span<const Robot> robots) {
 
 std::int64_t Part2(std::span<Robot> robots) {
   int time = 0;
+  bool grid[kGridSize.y][kGridSize.x] = {};
   while (true) {
     time++;
-    bool grid[kGridSize.y][kGridSize.x] = {};
-    for (Robot& robot : robots) {
-      robot.p = (robot.p + robot.v) % kGridSize;
-      grid[robot.p.y][robot.p.x] = true;
-    }
+    for (Robot robot : robots) grid[robot.p.y][robot.p.x] = false;
     int horizontalness = 0;
-    for (int y = 0; y < kGridSize.y; y++) {
-      for (int x = 1; x < kGridSize.x; x++) {
-        if (grid[y][x - 1] && grid[y][x]) horizontalness++;
-      }
+    for (Robot& robot : robots) {
+      Vec p = robot.p = (robot.p + robot.v) % kGridSize;
+      if (grid[p.y][p.x]) continue;
+      grid[p.y][p.x] = true;
+      if (p.x > 0 && grid[p.y][p.x - 1]) horizontalness++;
+      if (p.x < kGridSize.x - 1 && grid[p.y][p.x + 1]) horizontalness++;
     }
     if (horizontalness > 200) return time;
   }
