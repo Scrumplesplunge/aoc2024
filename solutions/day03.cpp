@@ -1,5 +1,6 @@
 #include "../common/api.hpp"
 #include "../common/coro.hpp"
+#include "../common/scan.hpp"
 #include "tcp.hpp"
 
 #include <algorithm>
@@ -7,35 +8,6 @@
 #include <print>
 
 namespace aoc2024 {
-namespace {
-
-// Either consumes a prefix of `input` matching `required` and returns true, or
-// returns false without modifying `input`.
-bool ConsumePrefix(std::string_view& input, std::string_view prefix) {
-  if (!input.starts_with(prefix)) return false;
-  input.remove_prefix(prefix.size());
-  return true;
-}
-
-// Either consumes a single character of `input` matching `c` and returns true,
-// or returns false without modifying `input`.
-bool ConsumeChar(std::string_view& input, char c) {
-  if (input.empty() || input[0] != c) return false;
-  input.remove_prefix(1);
-  return true;
-}
-
-// Either consumes an int at the prefix of `input` and returns true, or returns
-// false without modifying `input`.
-bool ConsumeInt(std::string_view& input, int& value) {
-  const auto [end, error] = std::from_chars(
-      input.data(), input.data() + input.size(), value);
-  if (error != std::errc()) return false;
-  input.remove_prefix(end - input.data());
-  return true;
-}
-
-}  // namespace
 
 Task<void> Day03(tcp::Socket& socket) {
   char buffer[20000];
@@ -50,13 +22,11 @@ Task<void> Day03(tcp::Socket& socket) {
     const auto i = input.find_first_of("dm");
     if (i == input.npos) break;  // No more matches.
     input.remove_prefix(i);
-    if (ConsumePrefix(input, "do()")) {
+    if (ScanPrefix(input, "do()")) {
       enable = true;
-    } else if (ConsumePrefix(input, "don't()")) {
+    } else if (ScanPrefix(input, "don't()")) {
       enable = false;
-    } else if (int a, b; ConsumePrefix(input, "mul(") && ConsumeInt(input, a) &&
-                         ConsumeChar(input, ',') && ConsumeInt(input, b) &&
-                         ConsumeChar(input, ')')) {
+    } else if (int a, b; ScanPrefix(input, "mul({},{})", a, b)) {
       part1 += a * b;
       if (enable) part2 += a * b;
     } else {

@@ -1,5 +1,6 @@
 #include "../common/api.hpp"
 #include "../common/coro.hpp"
+#include "../common/scan.hpp"
 #include "tcp.hpp"
 
 #include <cctype>
@@ -19,42 +20,29 @@ struct Record {
   std::uint16_t values[kMaxValues];
 };
 
-template <std::integral I>
-I ParseInt(std::string_view value) {
-  I result;
-  const char* first = value.data();
-  const char* last = first + value.size();
-  auto [i, error] = std::from_chars(first, last, result);
-  if (i != last || error != std::errc()) throw std::runtime_error("bad int");
-  return result;
-}
-
 struct Input {
   static constexpr int kMaxRecords = 850;
 
   Task<void> Read(tcp::Socket& socket) {
     char buffer[26000];
     std::string_view input(co_await socket.Read(buffer));
-    assert(input.back() == '\n');
-    input.remove_suffix(1);
 
-    for (const auto line_range : std::ranges::views::split(input, '\n')) {
-      std::string_view line(line_range);
+    while (!input.empty()) {
       if (num_records == kMaxRecords) {
-        throw std::runtime_error("too many lines");
+        throw std::runtime_error("too many records");
       }
-      assert(num_records < kMaxRecords);
       Record& record = records[num_records++];
-      const auto separator = line.find(": ");
-      if (separator == line.npos) throw std::runtime_error("bad line");
-      record.target = ParseInt<std::uint64_t>(line.substr(0, separator));
-      for (const auto entry :
-           std::ranges::views::split(line.substr(separator + 2), ' ')) {
+      if (!ScanPrefix(input, "{}: {}", record.target, record.values[0])) {
+        throw std::runtime_error("bad line");
+      }
+      record.num_values = 1;
+      while (!ScanPrefix(input, "\n")) {
         if (record.num_values == Record::kMaxValues) {
           throw std::runtime_error("too many values in line");
         }
-        record.values[record.num_values++] =
-            ParseInt<std::uint16_t>(std::string_view(entry));
+        if (!ScanPrefix(input, " {}", record.values[record.num_values++])) {
+          throw std::runtime_error("bad line");
+        }
       }
     }
   }

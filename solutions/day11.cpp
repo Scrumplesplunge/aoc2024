@@ -1,5 +1,6 @@
 #include "../common/api.hpp"
 #include "../common/coro.hpp"
+#include "../common/scan.hpp"
 #include "tcp.hpp"
 
 #include <cctype>
@@ -13,6 +14,12 @@ namespace aoc2024 {
 namespace {
 
 struct StoneType { std::uint64_t marking, count; };
+
+bool ScanValue(std::string_view& input, StoneType& type) {
+  if (!aoc2024::ScanValue(input, type.marking)) return false;
+  type.count = 1;
+  return true;
+}
 
 // Given a span of StoneType entries, combines counts for identical elements.
 // The return value is a prefix of the input span containing the compacted
@@ -43,22 +50,21 @@ std::span<StoneType> Combine(std::span<StoneType> entries) {
 Task<std::span<StoneType>> ReadInput(tcp::Socket& socket,
                                      std::span<StoneType> buffer) {
   char text[128];
-  const std::span<const char> input = co_await socket.Read(text);
-  if (input.size() == 128) throw std::runtime_error("input too long");
-  const char* i = input.data();
-  const char* const end = i + input.size();
-  int num_stones = 0;
-  while (true) {
-    std::uint64_t x;
-    const auto [j, error] = std::from_chars(i, end, x);
-    if (error != std::errc()) throw std::runtime_error("bad input (number)");
-    buffer[num_stones++] = StoneType{.marking = x, .count = 1};
-    i = j;
-    if (*i == '\n') break;
-    if (*i != ' ') throw std::runtime_error("bad input (spaces)");
-    i++;
+  std::string_view input(co_await socket.Read(text));
+  if (!ScanPrefix(input, "{}", buffer[0])) {
+    throw std::runtime_error("no stones");
   }
-  if (i + 1 != end) throw std::runtime_error("bad input (multiple lines)");
+  int num_stones = 1;
+  const int max_stones = buffer.size();
+  while (!ScanPrefix(input, "\n")) {
+    if (num_stones == max_stones) {
+      throw std::runtime_error("too many stones");
+    }
+    if (!ScanPrefix(input, " {}", buffer[num_stones++])) {
+      throw std::runtime_error("bad syntax");
+    }
+  }
+  if (!input.empty()) throw std::runtime_error("multiple lines");
   co_return Combine(buffer.subspan(0, num_stones));
 }
 

@@ -1,5 +1,6 @@
 #include "../common/api.hpp"
 #include "../common/coro.hpp"
+#include "../common/scan.hpp"
 #include "tcp.hpp"
 
 #include <algorithm>
@@ -7,75 +8,6 @@
 #include <print>
 
 namespace aoc2024 {
-
-class BufferedReader {
- public:
-  explicit BufferedReader(tcp::Socket& socket, std::span<char> buffer)
-      : socket_(&socket), buffer_(buffer) {}
-
-  // Read a line. The returned span is only valid until the next read operation.
-  Task<std::string_view> ReadLine() {
-    auto i = std::find(data_.begin(), data_.end(), '\n');
-    if (i == data_.end()) {
-      co_await Refill();
-      i = std::find(data_.begin(), data_.end(), '\n');
-      if (i == data_.end()) throw std::runtime_error("line is too long");
-    }
-    const std::string_view line(data_.data(), i - data_.begin());
-    data_ = data_.subspan(i + 1 - data_.begin());
-    co_return line;
-  }
-
-  Task<std::span<char>> ReadLongLine(std::span<char> buffer) {
-    std::span<char> unused = buffer;
-    while (true) {
-      const auto i = std::find(data_.begin(), data_.end(), '\n');
-      const std::span<char> bytes(data_.begin(), i - data_.begin());
-      if (bytes.size() > unused.size()) {
-        throw std::runtime_error("line is too long");
-      }
-      std::memcpy(unused.data(), bytes.data(), bytes.size());
-      if (i != data_.end()) {
-        // Remove the rest of the line, including the newline, from the buffer.
-        data_ = data_.subspan(i + 1 - data_.begin());
-        co_return buffer.subspan(0, buffer.size() - unused.size());
-      }
-      // More to come.
-      unused = unused.subspan(bytes.size());
-      if (!co_await Refill()) {
-        throw std::runtime_error("unterminated line");
-      }
-    }
-  }
-
-  bool AtEnd() const { return data_.empty() && eof_; }
-
- private:
-  Task<bool> Refill() {
-    std::memmove(buffer_.data(), data_.data(), data_.size());
-    const std::span<char> new_data =
-        co_await socket_->Read(buffer_.subspan(data_.size()));
-    data_ = buffer_.subspan(0, data_.size() + new_data.size());
-    eof_ = data_.size() < buffer_.size();
-    co_return data_.size();
-  }
-
-  tcp::Socket* socket_;
-  std::span<char> buffer_;
-  std::span<char> data_;
-  bool eof_ = false;
-};
-
-int ConsumeInt(std::string_view& text) {
-  int value;
-  const auto i = text.find_first_not_of(" ");
-  if (i == text.npos) throw std::runtime_error("expected int in " + std::string(text));
-  text.remove_prefix(i);
-  auto [end, error] = std::from_chars(text.begin(), text.end(), value);
-  if (error != std::errc()) throw std::runtime_error("expected int in " + std::string(text));
-  text.remove_prefix(end - text.begin());
-  return value;
-}
 
 bool IsSafe(std::span<const std::int8_t> values) {
   assert(values.size() >= 2);
@@ -112,20 +44,23 @@ bool IsMostlySafe(std::span<const std::int8_t> values) {
 }
 
 Task<void> Day02(tcp::Socket& socket) {
-  char buffer[1000];
-  BufferedReader reader(socket, buffer);
+  char buffer[20000];
+  std::string_view input(co_await socket.Read(buffer));
 
   int num_safe = 0;
   int num_mostly_safe = 0;
-  while (!reader.AtEnd()) {
-    std::string_view line = co_await reader.ReadLine();
-
+  while (!input.empty()) {
     // Parse the values.
     std::int8_t buffer[8];
-    int num_values = 0;
-    while (!line.empty()) {
-      assert(num_values < 8);
-      buffer[num_values++] = ConsumeInt(line);
+    if (!ScanPrefix(input, "{}", buffer[0])) {
+      throw std::runtime_error("no values in line");
+    }
+    int num_values = 1;
+    while (!ScanPrefix(input, "\n")) {
+      if (num_values == 8) throw std::runtime_error("too many values in line");
+      if (!ScanPrefix(input, " {}", buffer[num_values++])) {
+        throw std::runtime_error("bad syntax in line");
+      }
     }
     const std::span<const std::int8_t> values(buffer, num_values);
     num_safe += IsSafe(values);

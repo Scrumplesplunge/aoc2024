@@ -1,5 +1,6 @@
 #include "../common/api.hpp"
 #include "../common/coro.hpp"
+#include "../common/scan.hpp"
 #include "tcp.hpp"
 
 #include <cctype>
@@ -11,45 +12,38 @@ namespace aoc2024 {
 
 Task<void> Day05(tcp::Socket& socket) {
   char buffer[16000];
-  const std::string_view input(co_await socket.Read(buffer));
-  assert(input.size() < 16000);  // If we hit 16k then we may have truncated.
+  std::string_view input(co_await socket.Read(buffer));
 
   // ordered[a][b] is true if `a|b` is a constraint.
   bool ordered[100][100] = {};
   // Parse the list of dependencies.
-  const char* i = input.data();
-  const char* const end = i + input.size();
-  while (*i != '\n') {
-    assert(end - i >= 6);
-    assert(std::isdigit(i[0]) && std::isdigit(i[1]) &&
-           i[2] == '|' &&
-           std::isdigit(i[3]) && std::isdigit(i[4]) &&
-           i[5] == '\n');
-    const int a = 10 * (i[0] - '0') + (i[1] - '0');
-    const int b = 10 * (i[3] - '0') + (i[4] - '0');
+  while (!ScanPrefix(input, "\n")) {
+    std::int8_t a, b;
+    if (!ScanPrefix(input, "{}|{}\n", a, b)) {
+      throw std::runtime_error("bad constraint");
+    }
     ordered[a][b] = true;
-    i += 6;
   }
-  assert(*i == '\n');
-  i++;
 
   // Process each list of pages.
   int part1 = 0, part2 = 0;
-  while (i != end) {
+  while (!input.empty()) {
     // Parse the list.
     constexpr int kMaxValues = 30;
     int values[kMaxValues];
-    int num_values = 0;
-    while (true) {
-      // Parse a value.
-      assert(num_values < kMaxValues);
-      assert(end - i >= 3);
-      assert(std::isdigit(i[0]) && std::isdigit(i[1]));
-      values[num_values++] = 10 * (i[0] - '0') + (i[1] - '0');
-      const char lookahead = i[2];
-      i += 3;
-      if (lookahead == '\n') break;
-      assert(lookahead == ',');
+    if (!ScanPrefix(input, "{}", values[0])) {
+      throw std::runtime_error("no values in line");
+    }
+    int num_values = 1;
+    while (!ScanPrefix(input, "\n")) {
+      if (num_values == kMaxValues) {
+        throw std::runtime_error("too many values in line");
+      }
+      if (!ScanPrefix(input, ",{}", values[num_values++])) {
+        std::println("stuff bork at {}", input.data() - buffer);
+        std::println("remaining:\n{}", input.substr(0, 50));
+        throw std::runtime_error("bad syntax in line");
+      }
     }
 
     bool correct = true;

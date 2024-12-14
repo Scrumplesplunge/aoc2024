@@ -1,4 +1,5 @@
 #include "../common/coro.hpp"
+#include "../common/scan.hpp"
 #include "tcp.hpp"
 
 #include <algorithm>
@@ -9,21 +10,12 @@ namespace aoc2024 {
 struct Input {
   Task<void> Read(tcp::Socket& socket) {
     char buffer[14001];
-    std::span<const char> input = co_await socket.Read(buffer);
-    assert(input.size() == 14000);
+    std::string_view input(co_await socket.Read(buffer));
 
     for (int i = 0; i < 1000; i++) {
-      // Here we are requiring exactly 14 bytes per line:
-      //   * 5 bytes for the first number
-      //   * 3 spaces
-      //   * 5 bytes for the second number
-      //   * A newline
-      std::span<const char> line = input.subspan(14 * i, 14);
-      assert(line[5] == ' ' && line[6] == ' ' && line[7] == ' ');
-      assert(line[13] == '\n');
-
-      a[i] = std::stoi(std::string(line.data(), 5));
-      b[i] = std::stoi(std::string(line.data() + 8, 5));
+      if (!ScanPrefix(input, "{}   {}\n", a[i], b[i])) {
+        throw std::runtime_error("bad input");
+      }
     }
   }
 
