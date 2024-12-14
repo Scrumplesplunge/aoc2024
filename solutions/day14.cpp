@@ -80,36 +80,18 @@ std::int64_t Part2(std::span<Robot> robots) {
   int time = 0;
   while (true) {
     time++;
+    bool grid[kGridSize.y][kGridSize.x] = {};
     for (Robot& robot : robots) {
       robot.p = (robot.p + robot.v) % kGridSize;
-    }
-    char wtf[kGridSize.y * (kGridSize.x + 1)];
-    std::ranges::fill(wtf, '.');
-    for (int y = 0; y < kGridSize.y; y++) {
-      wtf[y * (kGridSize.x + 1) + kGridSize.x] = '\n';
-    }
-    for (const Robot robot : robots) {
-      const int i = robot.p.y * (kGridSize.x + 1) + robot.p.x;
-      if (wtf[i] == '.') {
-        wtf[i] = '1';
-      } else if ('1' <= wtf[i] && wtf[i] < '9') {
-        wtf[i]++;
-      } else {
-        wtf[i] = '*';
-      }
+      grid[robot.p.y][robot.p.x] = true;
     }
     int horizontalness = 0;
     for (int y = 0; y < kGridSize.y; y++) {
-      const int o = y * (kGridSize.x + 1);
       for (int x = 1; x < kGridSize.x; x++) {
-        if (wtf[o + x] != '.' && wtf[o + x - 1] != '.') horizontalness++;
+        if (grid[y][x - 1] && grid[y][x]) horizontalness++;
       }
     }
-    if (horizontalness > 200) {
-      std::print("\x1b[2J{}time={}\n\n", std::string_view(wtf, sizeof(wtf)),
-                 time);
-      std::cin.get();
-    }
+    if (horizontalness > 200) return time;
   }
 }
 
