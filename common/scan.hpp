@@ -48,7 +48,7 @@ template <Scannable... Args>
 bool ScanPrefix(std::string_view& input, std::string_view format,
                 Args&... args) {
   const ArgumentParser parsers[] = {ArgumentParser(args)...};
-  return VScanPrefix(input, format, parsers);
+  return VScanPrefix(input, format, std::span(parsers, sizeof...(args)));
 }
 
 template <Scannable... Args>
