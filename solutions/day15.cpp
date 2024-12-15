@@ -288,9 +288,6 @@ int Part2(const Input& input) {
       }
     }
   }
-  // 1554744 too high
-  //   (fixed bug where I wasn't updating the robot position in the grid).
-  // 1552463 right answer
   int total = 0;
   for (int y = 0; y < grid.height; y++) {
     for (int x = 0; x < grid.width; x++) {
