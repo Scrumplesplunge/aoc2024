@@ -156,67 +156,10 @@ Direction Rotate(Direction direction, int num_clockwise_quarter_turns) {
   return Direction((direction + num_clockwise_quarter_turns + 4) % 4);
 }
 
-int Part2(Grid grid, const VisitedSet& visited, Vec start, Vec end,
-          Direction end_direction) {
-  struct Node {
-    Vec position;
-    Direction direction;
-  };
-  Node stack[1000];
-  int stack_size = 0;
-  std::uint8_t seen[141][141] = {};
-  stack[stack_size++] = Node(end, end_direction);
-  while (stack_size > 0) {
-    const Node node = stack[--stack_size];
-    const Vec p = node.position;
-    // If `seen` is already set, we've counted tiles on this path already.
-    if (seen[p.y][p.x] & (1 << node.direction)) continue;
-    seen[p.y][p.x] |= 1 << node.direction;
-    if (p == start) continue;
-    if (stack_size > 996) throw std::runtime_error("stack overflow");
-    // There should never be a wall behind us (the direction of a visited
-    // location is the direction we came from).
-    const Vec gap = p + Rotate(node.direction, 2);
-    assert(grid[gap] != '#');
-    seen[gap.y][gap.x] = true;
-    const Vec position = Step(p, Rotate(node.direction, 2), 2);
-    // Otherwise, check all possible directions for how we might have got here.
-    const int cost = visited[p, node.direction].cost;
-    for (int rotation = -1; rotation < 3; rotation++) {
-      const Direction direction = Rotate(node.direction, rotation);
-      const VisitedSet::Cell& cell = visited[position, direction];
-      // If `cell.seen` is not set, the location is not part of any best path.
-      if (!cell.seen) continue;
-      // We can only have come from this location if the cost adds up.
-      if (cell.cost + 1000 * std::abs(rotation) + 2 != cost) continue;
-      static constexpr const char* kDir[] = {"up", "right", "down", "left"};
-      std::println("{},{},{} is legit", position.x, position.y,
-                   kDir[direction]);
-      stack[stack_size++] = Node{position, direction};
-    }
-  }
-  int total = 0;
-  for (int y = 0; y < 141; y++) {
-    for (int x = 0; x < 141; x++) {
-      if (seen[y][x]) total++;
-    }
-  }
-  for (int y = 0; y < grid.height; y++) {
-    for (int x = 0; x < grid.width; x++) {
-      std::print("{}", seen[y][x] ? 'O' : grid[x, y]);
-    }
-    std::println();
-  }
-  std::println("debug: 3,11,1 is {} with cost {}",
-               visited[Vec(3, 11), kRight].seen ? "seen" : "not seen",
-               visited[Vec(3, 11), kRight].cost);
-  return total;
-}
-
-struct Result { int part1, part2; };
-
-Result Solve(Input& input) {
-  VisitedSet visited;
+int Part1(Input& input, VisitedSet& visited) {
+  // Search for the cheapest path using A*. As a side effect, the visited set is
+  // populated with the cost of reaching each position. This is used to solve
+  // part 2.
   Frontier frontier;
   frontier.Push({
       .cost = 0,
@@ -229,12 +172,7 @@ Result Solve(Input& input) {
     const bool is_new =
         visited.Insert(node.position, node.direction, node.cost);
     if (!is_new) continue;
-    if (node.position == input.end) {
-      const int part1 = node.cost;
-      const int part2 =
-          Part2(input.grid, visited, input.start, input.end, node.direction);
-      return {part1, part2};
-    }
+    if (node.position == input.end) return node.cost;
     for (int rotation = -1; rotation < 3; rotation++) {
       const Direction direction = Rotate(node.direction, rotation);
       if (input.grid[node.position + direction] == '#') continue;
@@ -251,13 +189,73 @@ Result Solve(Input& input) {
   throw std::runtime_error("end not found");
 }
 
+int Part2(Input& input, const VisitedSet& visited) {
+  // Starting at the end position (in whatever orientation it was reached*),
+  // use the costs in the visited set to backtrack along any path which matches
+  // the minimum cost. This can branch when we have two paths that rejoin with
+  // the same cost, which is handled with a stack of yet-to-be-expanded nodes.
+  //
+  // *: the part 1 code above only takes note of the first path that reaches the
+  // end. This works fine as long as no input has multiple paths that rejoin
+  // exactly at the end node. Making this solution work for that case would
+  // require iterating for slightly longer in part 1 to ensure that all
+  // minimum-cost end nodes are accounted for.
+  struct Node {
+    Vec position;
+    Direction direction;
+  };
+  Node stack[1000];
+  int stack_size = 0;
+  std::uint8_t seen[141][141] = {};
+  for (int d = 0; d < 4; d++) {
+    if (visited[input.end, Direction(d)].seen) {
+      stack[stack_size++] = Node(input.end, Direction(d));
+    }
+  }
+  while (stack_size > 0) {
+    const Node node = stack[--stack_size];
+    const Vec p = node.position;
+    // If `seen` is already set, we've counted tiles on this path already.
+    if (seen[p.y][p.x] & (1 << node.direction)) continue;
+    seen[p.y][p.x] |= 1 << node.direction;
+    if (p == input.start) continue;
+    if (stack_size > 996) throw std::runtime_error("stack overflow");
+    // There should never be a wall behind us (the direction of a visited
+    // location is the direction we came from).
+    const Vec gap = p + Rotate(node.direction, 2);
+    assert(input.grid[gap] != '#');
+    seen[gap.y][gap.x] = true;
+    const Vec position = Step(p, Rotate(node.direction, 2), 2);
+    // Otherwise, check all possible directions for how we might have got here.
+    const int cost = visited[p, node.direction].cost;
+    for (int rotation = -1; rotation < 3; rotation++) {
+      const Direction direction = Rotate(node.direction, rotation);
+      const VisitedSet::Cell& cell = visited[position, direction];
+      // If `cell.seen` is not set, the location is not part of any best path.
+      if (!cell.seen) continue;
+      // We can only have come from this location if the cost adds up.
+      if (cell.cost + 1000 * std::abs(rotation) + 2 != cost) continue;
+      stack[stack_size++] = Node{position, direction};
+    }
+  }
+  int total = 0;
+  for (int y = 0; y < 141; y++) {
+    for (int x = 0; x < 141; x++) {
+      if (seen[y][x]) total++;
+    }
+  }
+  return total;
+}
+
 }  // namespace
 
 Task<void> Day16(tcp::Socket& socket) {
   Input input;
   co_await input.Read(socket);
 
-  const auto [part1, part2] = Solve(input);
+  VisitedSet visited;
+  const int part1 = Part1(input, visited);
+  const int part2 = Part2(input, visited);
   std::println("part1: {}\npart2: {}\n", part1, part2);
 
   char result[32];
