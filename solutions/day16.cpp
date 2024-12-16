@@ -122,19 +122,27 @@ class Frontier {
 };
 
 struct VisitedSet {
-  bool Has(Vec position, Direction direction) const {
+  struct Cell {
+    std::uint32_t seen : 1;
+    std::uint32_t cost : 31;
+  };
+
+  auto& operator[](this auto&& self, Vec position, Direction direction) {
     assert(position.x < 141 && position.y < 141);
-    return seen[position.y][position.x] & (1 << direction);
+    assert(position.x % 2 == 1 && position.y % 2 == 1);
+    return self.cells[position.y / 2][position.x / 2][direction];
   }
 
-  void Insert(Vec position, Direction direction) {
-    assert(position.x < 141 && position.y < 141);
-    seen[position.y][position.x] |= 1 << direction;
+  bool Insert(Vec position, Direction direction, int cost) {
+    Cell& cell = (*this)[position, direction];
+    if (cell.seen) return false;
+    cell = Cell{.seen = 1, .cost = std::uint32_t(cost)};
+    return true;
   }
 
-  // `seen[y][x] & (1 << d)` is set if we've already been at `(x, y)` facing in
-  // direction `d`.
-  std::uint8_t seen[141][141] = {};
+  // `cells[y][x][d].seen` is set if we've already been at `(2x+1, 2y+1)` facing
+  // direction `d`, and `cost` is the cost of getting there the first time.
+  Cell cells[70][70][4] = {};
 };
 
 int GuessCost(Vec position, Vec end) {
@@ -148,7 +156,66 @@ Direction Rotate(Direction direction, int num_clockwise_quarter_turns) {
   return Direction((direction + num_clockwise_quarter_turns + 4) % 4);
 }
 
-int Part1(Input& input) {
+int Part2(Grid grid, const VisitedSet& visited, Vec start, Vec end,
+          Direction end_direction) {
+  struct Node {
+    Vec position;
+    Direction direction;
+  };
+  Node stack[1000];
+  int stack_size = 0;
+  std::uint8_t seen[141][141] = {};
+  stack[stack_size++] = Node(end, end_direction);
+  while (stack_size > 0) {
+    const Node node = stack[--stack_size];
+    const Vec p = node.position;
+    // If `seen` is already set, we've counted tiles on this path already.
+    if (seen[p.y][p.x] & (1 << node.direction)) continue;
+    seen[p.y][p.x] |= 1 << node.direction;
+    if (p == start) continue;
+    if (stack_size > 996) throw std::runtime_error("stack overflow");
+    // There should never be a wall behind us (the direction of a visited
+    // location is the direction we came from).
+    const Vec gap = p + Rotate(node.direction, 2);
+    assert(grid[gap] != '#');
+    seen[gap.y][gap.x] = true;
+    const Vec position = Step(p, Rotate(node.direction, 2), 2);
+    // Otherwise, check all possible directions for how we might have got here.
+    const int cost = visited[p, node.direction].cost;
+    for (int rotation = -1; rotation < 3; rotation++) {
+      const Direction direction = Rotate(node.direction, rotation);
+      const VisitedSet::Cell& cell = visited[position, direction];
+      // If `cell.seen` is not set, the location is not part of any best path.
+      if (!cell.seen) continue;
+      // We can only have come from this location if the cost adds up.
+      if (cell.cost + 1000 * std::abs(rotation) + 2 != cost) continue;
+      static constexpr const char* kDir[] = {"up", "right", "down", "left"};
+      std::println("{},{},{} is legit", position.x, position.y,
+                   kDir[direction]);
+      stack[stack_size++] = Node{position, direction};
+    }
+  }
+  int total = 0;
+  for (int y = 0; y < 141; y++) {
+    for (int x = 0; x < 141; x++) {
+      if (seen[y][x]) total++;
+    }
+  }
+  for (int y = 0; y < grid.height; y++) {
+    for (int x = 0; x < grid.width; x++) {
+      std::print("{}", seen[y][x] ? 'O' : grid[x, y]);
+    }
+    std::println();
+  }
+  std::println("debug: 3,11,1 is {} with cost {}",
+               visited[Vec(3, 11), kRight].seen ? "seen" : "not seen",
+               visited[Vec(3, 11), kRight].cost);
+  return total;
+}
+
+struct Result { int part1, part2; };
+
+Result Solve(Input& input) {
   VisitedSet visited;
   Frontier frontier;
   frontier.Push({
@@ -159,9 +226,15 @@ int Part1(Input& input) {
   });
   while (!frontier.Empty()) {
     const Frontier::Node node = frontier.Pop();
-    if (node.position == input.end) return node.cost;
-    if (visited.Has(node.position, node.direction)) continue;
-    visited.Insert(node.position, node.direction);
+    const bool is_new =
+        visited.Insert(node.position, node.direction, node.cost);
+    if (!is_new) continue;
+    if (node.position == input.end) {
+      const int part1 = node.cost;
+      const int part2 =
+          Part2(input.grid, visited, input.start, input.end, node.direction);
+      return {part1, part2};
+    }
     for (int rotation = -1; rotation < 3; rotation++) {
       const Direction direction = Rotate(node.direction, rotation);
       if (input.grid[node.position + direction] == '#') continue;
@@ -184,14 +257,11 @@ Task<void> Day16(tcp::Socket& socket) {
   Input input;
   co_await input.Read(socket);
 
-  // 258760 too high
-  //   fixed bug with forgetting to add the real cost to the heuristic guess
-  // 130536 correct answer
-  const int part1 = Part1(input);
-  std::println("part1: {}\n", part1);
+  const auto [part1, part2] = Solve(input);
+  std::println("part1: {}\npart2: {}\n", part1, part2);
 
   char result[32];
-  const char* end = std::format_to(result, "{}\n", part1);
+  const char* end = std::format_to(result, "{}\n{}\n", part1, part2);
   co_await socket.Write(std::span<const char>(result, end - result));
 }
 
