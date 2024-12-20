@@ -50,29 +50,20 @@ struct Input {
   std::span<const std::string_view> patterns;
 };
 
-bool CanProduce(std::string_view pattern,
-                std::span<const std::string_view> towels) {
-  bool possible[100] = {};
+std::uint64_t Arrangements(std::string_view pattern,
+                 std::span<const std::string_view> towels) {
+  std::uint64_t arrangements[100] = {};
   assert(pattern.size() < 100);
-  possible[pattern.size()] = true;
+  arrangements[pattern.size()] = 1;
   for (int i = pattern.size(); i >= 0; i--) {
     const std::string_view suffix = pattern.substr(i);
     for (std::string_view towel : towels) {
-      if (suffix.starts_with(towel) && possible[i + towel.size()]) {
-        possible[i] = true;
-        break;
+      if (suffix.starts_with(towel)) {
+        arrangements[i] += arrangements[i + towel.size()];
       }
     }
   }
-  return possible[0];
-}
-
-int Part1(const Input& input) {
-  int count = 0;
-  for (std::string_view pattern : input.patterns) {
-    if (CanProduce(pattern, input.towels)) count++;
-  }
-  return count;
+  return arrangements[0];
 }
 
 }  // namespace
@@ -81,8 +72,13 @@ Task<void> Day19(tcp::Socket& socket) {
   Input input;
   co_await input.Read(socket);
 
-  const int part1 = Part1(input);
-  const int part2 = 0;
+  int part1 = 0;
+  std::uint64_t part2 = 0;
+  for (std::string_view pattern : input.patterns) {
+    const std::uint64_t arrangements = Arrangements(pattern, input.towels);
+    if (arrangements > 0) part1++;
+    part2 += arrangements;
+  }
   std::println("part1: {}\npart2: {}", part1, part2);
 
   char result[32];
