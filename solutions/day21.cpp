@@ -37,8 +37,12 @@ struct Input {
   Code codes[5];
 };
 
-struct Vec { int x, y; };
-Vec operator-(Vec l, Vec r) { return Vec(l.x - r.x, l.y - r.y); }
+struct Vec {
+  friend inline bool operator==(const Vec& l, const Vec& r) = default;
+  std::int8_t x, y;
+};
+
+Vec operator+(Vec l, Vec r) { return Vec(l.x + r.x, l.y + r.y); }
 
 struct Grid {
   Vec operator[](char c) const {
@@ -54,38 +58,12 @@ struct Grid {
     return self.buttons[position.y][position.x];
   }
 
+  bool InBounds(Vec v) const {
+    return 0 <= v.x && v.x < 3 && 0 <= v.y && v.y < 4 && (*this)[v] != '\0';
+  }
+
   char buttons[4][3];
 };
-
-template <Grid kGrid, bool kUpFirst>
-std::string_view Type(std::string_view code, std::span<char>& output_buffer) {
-  char* const first = output_buffer.data();
-  char* const end = first + output_buffer.size();
-  char* out = first;
-  Vec position = kGrid['A'];
-  for (char c : code) {
-    // 8 is bigger than the maximum path between two buttons.
-    if (end - out < 8) throw std::runtime_error("not enough space");
-    const Vec target = kGrid[c];
-    const Vec delta = target - position;
-    position = target;
-    if (kUpFirst) {
-      for (int i = delta.y; i < 0; i++) *out++ = '^';
-    } else {
-      for (int i = 0; i < delta.y; i++) *out++ = 'v';
-    }
-    for (int i = delta.x; i < 0; i++) *out++ = '<';
-    for (int i = 0; i < delta.x; i++) *out++ = '>';
-    if (kUpFirst) {
-      for (int i = 0; i < delta.y; i++) *out++ = 'v';
-    } else {
-      for (int i = delta.y; i < 0; i++) *out++ = '^';
-    }
-    *out++ = 'A';
-  }
-  output_buffer = output_buffer.subspan(out - first);
-  return std::string_view(first, out - first);
-}
 
 constexpr Grid kNumpad = {
     .buttons = {{'7',  '8', '9'},
@@ -99,84 +77,135 @@ constexpr Grid kArrows = {
                 {'<',  'v', '>'}},
 };
 
-std::string_view TypeOnNumpad(std::string_view code,
-                              std::span<char>& output_buffer) {
-  return Type<kNumpad, true>(code, output_buffer);
+class Frontier {
+ public:
+  struct Node {
+    //     arrows       arrows       arrows       numpad
+    // hand ---> robot_a ---> robot_b ---> robot_c ---> output
+    Vec hand;
+    Vec robot_a;
+    Vec robot_b;
+    char path[200];
+    std::uint8_t cost;
+    std::uint8_t digits_produced;
+  };
+
+  bool Empty() const { return size_ == 0; }
+
+  Node Pop() {
+    assert(!Empty());
+    std::ranges::pop_heap(data_, data_ + size_, std::greater<>(), &Node::cost);
+    return data_[--size_];
+  }
+
+  void Push(Node node) {
+    assert(size_ < kMaxSize);
+    data_[size_++] = node;
+    std::ranges::push_heap(data_, data_ + size_, std::greater<>(),
+                           &Node::cost);
+  }
+
+ private:
+  static constexpr int kMaxSize = 750;
+  Node data_[kMaxSize];
+  int size_ = 0;
+};
+
+class VisitedSet {
+ public:
+  bool Insert(const Frontier::Node& node) {
+    assert(kNumpad.InBounds(node.robot_b));
+    const int robot_b = node.robot_b.y * 3 + node.robot_b.x;
+    std::uint16_t& numpad = GetNumpad(node);
+    if (numpad & (1 << robot_b)) return false;
+    numpad |= 1 << robot_b;
+    return true;
+  }
+
+ private:
+  auto GetNumpad(this auto&& self, const Frontier::Node& node)
+      -> decltype(self.data_[0][0][0])& {
+    assert(kArrows.InBounds(node.hand));
+    assert(kArrows.InBounds(node.robot_a));
+    const int digits = node.digits_produced;
+    const int hand = node.hand.y * 3 + node.hand.x;
+    const int robot_a = node.robot_a.y * 3 + node.robot_a.x;
+    return self.data_[digits][hand][robot_a];
+  }
+
+  // `data_[digits][hand][robot_a] & (1 << robot_b)` is set if we have
+  // already seen this configuration.
+  std::uint16_t data_[5][6][6] = {};
+};
+
+Vec Step(Vec position, char c) {
+  switch (c) {
+    case '<': return position + Vec(-1, 0);
+    case '>': return position + Vec(1, 0);
+    case '^': return position + Vec(0, -1);
+    case 'v': return position + Vec(0, 1);
+  }
+  throw std::runtime_error("bad direction");
 }
 
-std::string_view TypeOnArrows(std::string_view code,
-                              std::span<char>& output_buffer) {
-  return Type<kArrows, false>(code, output_buffer);
+std::optional<Frontier::Node> TryAction(std::string_view target,
+                                        Frontier::Node node, char c) {
+  if (node.cost >= 200) {
+    node.path[198] = node.path[199] = '.';
+  } else {
+    node.path[node.cost] = c;
+  }
+  node.cost++;
+  if (c != 'A') {
+    node.hand = Step(node.hand, c);
+    if (!kArrows.InBounds(node.hand)) return std::nullopt;
+    return node;
+  }
+  if (kArrows[node.hand] != 'A') {
+    node.robot_a = Step(node.robot_a, kArrows[node.hand]);
+    if (!kArrows.InBounds(node.robot_a)) return std::nullopt;
+    return node;
+  }
+  if (kArrows[node.robot_a] != 'A') {
+    node.robot_b = Step(node.robot_b, kArrows[node.robot_a]);
+    if (!kNumpad.InBounds(node.robot_b)) return std::nullopt;
+    return node;
+  }
+  if (kNumpad[node.robot_b] != target[node.digits_produced]) {
+    return std::nullopt;
+  }
+  node.digits_produced++;
+  return node;
 }
 
-// 6327 too low
-//
-// 379A
-//   789
-//   456
-//   123
-//    0A
-// ^A^^<<A>>AvvvA
-//    ^A
-//   <v>
-// <A>A<AAv<AA>>^AvAA^Av<AAA>^A
-// v<<A>>^AvA^Av<<A>>^AAv<A<A>>^AAvAA<^A>Av<A>^AA<A>Av<A<A>>^AAAvA<^A>A
-
-std::string Eval(std::string_view code, const Grid& grid) {
-  Vec position = grid['A'];
-  std::string result;
-  for (char c : code) {
-    switch (c) {
-      case '^':
-        position.y--;
-        break;
-      case 'v':
-        position.y++;
-        break;
-      case '<':
-        position.x--;
-        break;
-      case '>':
-        position.x++;
-        break;
-      case 'A':
-        result.push_back(grid[position]);
-        break;
-      default:
-        throw std::runtime_error("bad position");
+int NumPresses(std::string_view code) {
+  Frontier frontier;
+  VisitedSet visited;
+  frontier.Push({
+      .hand = kArrows['A'],
+      .robot_a = kArrows['A'],
+      .robot_b = kNumpad['A'],
+      .path = {},
+      .cost = 0,
+      .digits_produced = 0,
+  });
+  while (!frontier.Empty()) {
+    const Frontier::Node node = frontier.Pop();
+    if (!visited.Insert(node)) continue;
+    if (node.digits_produced == code.size()) return node.cost;
+    for (char action : {'A', '<', '>', '^', 'v'}) {
+      const std::optional<Frontier::Node> next = TryAction(code, node, action);
+      if (next) frontier.Push(*next);
     }
   }
-  return result;
+  throw std::runtime_error("no valid sequence");
 }
 
 int Part1(const Input& input) {
   int total = 0;
   for (int i = 0; i < 5; i++) {
-    char buffer[1024];
-    std::span<char> unused = buffer;
-    const Input::Code code = input.codes[i];
-    std::println("{}", code.text);
-    const std::string_view l1 = TypeOnNumpad(code.text, unused);
-    if (Eval(l1, kNumpad) != code.text) {
-      std::println("BAD: {}", l1);
-      return 0;
-    }
-    std::println("{}", l1);
-    const std::string_view l2 = TypeOnArrows(l1, unused);
-    if (Eval(l2, kArrows) != l1) {
-      std::println("BAD: {}", l2);
-      return 0;
-    }
-    std::println("{}", l2);
-    const std::string_view l3 = TypeOnArrows(l2, unused);
-    if (Eval(l3, kArrows) != l2) {
-      std::println("BAD: {}", l3);
-      return 0;
-    }
-    std::println("{}", l3);
-    const int sequence_length = l3.size();
-    std::println("{} * {}", sequence_length, code.number);
-    total += sequence_length * code.number;
+    const int num_presses = NumPresses(input.codes[i].text);
+    total += input.codes[i].number * num_presses;
   }
   return total;
 }
@@ -186,26 +215,6 @@ int Part1(const Input& input) {
 Task<void> Day21(tcp::Socket& socket) {
   Input input;
   co_await input.Read(socket);
-
-  //     3            7                           9           A
-  // me: ^A           ^^<<A                       >>A         vvvA
-  // eg: ^A           <<^^A                       >>A         vvvA
-  //
-  // me: <A>A         <AAv<AA>>^A                 vAA^A       v<AAA>^A
-  // eg: <A>A         v<<AA>^AA>A                 vAA^A       <vAAA>^A
-  //
-  // me: v<<A>>^AvA^A v<<A>>^AAv<A<A>>^AAvAA<^A>A v<A>^AA<A>A v<A<A>>^AAAvA<^A>A
-  // eg: <v<A>>^AvA^A <vA<AA>>^AAvA<^A>AAvA^A     <vA>^AA<A>A <v<A>A>^AAAvA<^A>A
-
-  std::println("TEST for 379A:");
-  std::string code = "<v<A>>^AvA^A<vA<AA>>^AAvA<^A>AAvA^A<vA>^AA<A>A<v<A>A>^AAAvA<^A>A";
-  std::println("{}", code);
-  code = Eval(code, kArrows);
-  std::println("{}", code);
-  code = Eval(code, kArrows);
-  std::println("{}", code);
-  std::println("{}", Eval(code, kNumpad));
-  std::println("END TEST");
 
   const int part1 = Part1(input);
   const int part2 = 0;
