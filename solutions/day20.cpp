@@ -3,6 +3,7 @@
 #include "tcp.hpp"
 
 #include <algorithm>
+#include <generator>
 #include <print>
 #include <ranges>
 
@@ -11,6 +12,7 @@ namespace {
 
 struct Vec {
   friend bool operator==(const Vec&, const Vec&) = default;
+  int ManhattanLength() const { return std::abs(x) + std::abs(y); }
   int x, y;
 };
 
@@ -97,18 +99,10 @@ struct Input {
   Vec start, end;
 };
 
-// 6945 too high
-//   (fixed bug where I was considering diagonal offsets)
-// 4446 too high
-//   (fixed bug with considering cheats that start in walls)
-// 1106 too low
-//   (fixed bug with only counting one cheat per start position)
-// 1378 correct answer.
 int Part1(const Input& input) {
   int count = 0;
   const int x_max = input.width - 1;
   const int y_max = input.height - 1;
-  int saving_by_count[100] = {};
   for (int y = 1; y < y_max; y++) {
     for (int x = 1; x < x_max; x++) {
       const Vec position = Vec(x, y);
@@ -120,15 +114,42 @@ int Part1(const Input& input) {
         const int time_saved =
             input[position + 2 * offset].time - input[position].time - 2;
         if (time_saved >= 100) count++;
-        if (time_saved > 0) {
-          if (time_saved < 100) saving_by_count[time_saved]++;
-        }
       }
     }
   }
-  for (int i = 0; i < 100; i++) {
-    if (saving_by_count[i] == 0) continue;
-    std::println("{} cheats that save {} picoseconds", saving_by_count[i], i);
+  return count;
+}
+
+std::generator<Vec> Cheats(int range) {
+  // Points within a given range of a position form a diamond around that
+  // position.
+  for (int y = -range; y <= range; y++) {
+    const int delta = range - std::abs(y);
+    for (int x = -delta; x <= delta; x++) {
+      if (x == 0 && y == 0) continue;
+      co_yield Vec(x, y);
+    }
+  }
+}
+
+int Part2(const Input& input) {
+  int count = 0;
+  const int x_max = input.width - 1;
+  const int y_max = input.height - 1;
+  for (int y = 1; y < y_max; y++) {
+    for (int x = 1; x < x_max; x++) {
+      const Vec position = Vec(x, y);
+      if (input[position].wall) continue;
+      for (Vec offset : Cheats(20)) {
+        const Vec destination = position + offset;
+        if (!input.InBounds(destination)) continue;
+        if (input[destination].wall) continue;
+        const int cheat_duration = offset.ManhattanLength();
+        const int time_saved =
+            input[destination].time - input[position].time - cheat_duration;
+        if (time_saved >= 100) count++;
+      }
+    }
   }
   return count;
 }
@@ -140,7 +161,7 @@ Task<void> Day20(tcp::Socket& socket) {
   co_await input.Read(socket);
 
   const int part1 = Part1(input);
-  const int part2 = 0;
+  const int part2 = Part2(input);
   std::println("part1: {}\npart2: {}\n", part1, part2);
 
   char result[32];
