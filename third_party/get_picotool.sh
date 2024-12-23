@@ -41,4 +41,6 @@ fi
 if ! [[ -f /etc/udev/rules.d/99-picotool.rules ]]; then
   echo 'Need permission to configure picotool to not require sudo'
   sudo cp -v "$SRC_PATH/picotool/udev/99-picotool.rules" /etc/udev/rules.d/
+  sudo groupadd -f plugdev
+  sudo usermod -a -G plugdev $USER
 fi
