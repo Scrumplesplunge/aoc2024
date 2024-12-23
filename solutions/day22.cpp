@@ -26,31 +26,44 @@ struct Input {
   std::span<const int> values;
 };
 
+std::uint32_t Step(std::uint32_t secret) {
+  secret ^= secret * 64;
+  secret %= 16777216;
+  secret ^= secret / 32;
+  secret %= 16777216;
+  secret ^= secret * 2048;
+  secret %= 16777216;
+  return secret;
+}
+
 std::uint64_t Part1(const Input& input) {
   std::uint64_t total = 0;
   for (int value : input.values) {
     std::uint32_t secret = value;
-    for (int i = 0; i < 2000; i++) {
-      secret ^= secret * 64;
-      secret %= 16777216;
-      secret ^= secret / 32;
-      secret %= 16777216;
-      secret ^= secret * 2048;
-      secret %= 16777216;
-    }
+    for (int i = 0; i < 2000; i++) secret = Step(secret);
     total += secret;
   }
   return total;
 }
 
-// 2108 too high.
-//   (fix stack overflow issue by using dynamic memory and solving in chunks).
-// 1963 too low.
-// 1973 too high (literally just a guess).
-//   (fix early exit check to allow i=5)
-// 1968 right answer.
 int Part2(const Input& input) {
-  // will this fit, that is the question.
+  // The overall approach here is to simulate each sequence of 2000 values and
+  // keep track of the first time we see each sequence of 4 price changes for
+  // each monkey sequence, and the corresponding price we get for it. Logically,
+  // we have a big array of banana counts per four-change-sequence.
+  //
+  // There are roughly 100k different four-change-sequence patterns (we can use
+  // a sequence of 5 digits instead of four deltas, and we can normalise it by
+  // subtracting the minimum digit value from each digit).
+  //
+  // This is too large for us to keep in the Pico's RAM all at once. Instead, we
+  // can process in batches of four-change-sequence ranges by re-simulating the
+  // monkey sequences multiple times and only keeping track of the counts for
+  // the four-change-sequences which are within the range for the current batch.
+  //
+  // At the extreme end, we could iterate over every four-change sequence
+  // individually (kBatchSize = 1), but we only need two batches
+  // (kBatchSize = 50000) to fit within the RAM of the Pico.
   constexpr int kDomainSize = 100000;
   constexpr int kBatchSize = kDomainSize / 2;
   static_assert(kDomainSize % kBatchSize == 0);
@@ -59,21 +72,15 @@ int Part2(const Input& input) {
        batch_start += kBatchSize) {
     std::vector<std::uint16_t> counts(kBatchSize);
     const int batch_end = batch_start + kBatchSize;
-    std::println("running batch [{}, {})..", batch_start, batch_end);
     for (int value : input.values) {
       std::vector<bool> seen(kBatchSize);
       std::uint32_t secret = value;
       std::uint8_t digits[5] = {};
       digits[0] = secret % 10;
       for (int i = 1; i <= 2000; i++) {
-        secret ^= secret * 64;
-        secret %= 16777216;
-        secret ^= secret / 32;
-        secret %= 16777216;
-        secret ^= secret * 2048;
-        secret %= 16777216;
+        secret = Step(secret);
         digits[i % 5] = secret % 10;
-        if (i < 4) continue;
+        if (i < 4) continue;  // Wait until we have 5 values (4 price changes).
         const std::uint8_t min = *std::ranges::min_element(digits);
         int index = 0;
         for (int j = 1; j <= 5; j++) {
@@ -89,10 +96,8 @@ int Part2(const Input& input) {
       }
     }
     const int batch_best = *std::ranges::max_element(counts);
-    std::println("batch best: {}", batch_best);
     best = std::max(best, batch_best);
   }
-  std::println("overall best: {}", best);
   return best;
 }
 
