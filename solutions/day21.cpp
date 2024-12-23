@@ -80,14 +80,9 @@ constexpr Grid kArrows = {
 class Frontier {
  public:
   struct Node {
-    //     arrows       arrows       arrows       numpad
-    // hand ---> robot_a ---> robot_b ---> robot_c ---> output
-    Vec hand;
-    Vec robot_a;
-    Vec robot_b;
-    char path[200];
-    std::uint8_t cost;
-    std::uint8_t digits_produced;
+    Vec position;
+    std::uint16_t digits_produced;
+    std::uint64_t cost;
   };
 
   bool Empty() const { return size_ == 0; }
@@ -111,31 +106,22 @@ class Frontier {
   int size_ = 0;
 };
 
+template <Grid kGrid>
 class VisitedSet {
  public:
   bool Insert(const Frontier::Node& node) {
-    assert(kNumpad.InBounds(node.robot_b));
-    const int robot_b = node.robot_b.y * 3 + node.robot_b.x;
-    std::uint16_t& numpad = GetNumpad(node);
-    if (numpad & (1 << robot_b)) return false;
-    numpad |= 1 << robot_b;
+    assert(kGrid.InBounds(node.position));
+    const int i = node.position.y * 3 + node.position.x;
+    std::uint16_t& bitmap = data_[node.digits_produced];
+    if (bitmap & (1 << i)) return false;
+    bitmap |= 1 << i;
     return true;
   }
 
  private:
-  auto GetNumpad(this auto&& self, const Frontier::Node& node)
-      -> decltype(self.data_[0][0][0])& {
-    assert(kArrows.InBounds(node.hand));
-    assert(kArrows.InBounds(node.robot_a));
-    const int digits = node.digits_produced;
-    const int hand = node.hand.y * 3 + node.hand.x;
-    const int robot_a = node.robot_a.y * 3 + node.robot_a.x;
-    return self.data_[digits][hand][robot_a];
-  }
-
-  // `data_[digits][hand][robot_a] & (1 << robot_b)` is set if we have
-  // already seen this configuration.
-  std::uint16_t data_[5][6][6] = {};
+  // `data_[digits] & (1 << position)` is set if we have already seen this
+  // configuration.
+  std::uint16_t data_[5] = {};
 };
 
 Vec Step(Vec position, char c) {
@@ -148,64 +134,144 @@ Vec Step(Vec position, char c) {
   throw std::runtime_error("bad direction");
 }
 
+class Costs {
+ public:
+  Costs() = default;
+  Costs(const std::uint64_t (&initial)[5]) {
+    for (int i = 0; i < 5; i++) values_[i] = initial[i];
+  }
+
+  auto& operator[](this auto&& self, char c) {
+    return self.values_[Index(c)];
+  }
+
+ private:
+  static int Index(char c) {
+    static constexpr char kActions[] = "A<>v^";
+    for (int i = 0; i < 5; i++) {
+      if (kActions[i] == c) return i;
+    }
+    throw std::logic_error("bad action");
+  }
+
+  std::uint64_t values_[5];
+};
+
+template <Grid kGrid>
 std::optional<Frontier::Node> TryAction(std::string_view target,
-                                        Frontier::Node node, char c) {
-  if (node.cost >= 200) {
-    node.path[198] = node.path[199] = '.';
-  } else {
-    node.path[node.cost] = c;
-  }
-  node.cost++;
+                                        Frontier::Node node, char c,
+                                        const Costs& costs) {
+  node.cost += costs[c];
   if (c != 'A') {
-    node.hand = Step(node.hand, c);
-    if (!kArrows.InBounds(node.hand)) return std::nullopt;
+    node.position = Step(node.position, c);
+    if (!kGrid.InBounds(node.position)) return std::nullopt;
     return node;
   }
-  if (kArrows[node.hand] != 'A') {
-    node.robot_a = Step(node.robot_a, kArrows[node.hand]);
-    if (!kArrows.InBounds(node.robot_a)) return std::nullopt;
-    return node;
-  }
-  if (kArrows[node.robot_a] != 'A') {
-    node.robot_b = Step(node.robot_b, kArrows[node.robot_a]);
-    if (!kNumpad.InBounds(node.robot_b)) return std::nullopt;
-    return node;
-  }
-  if (kNumpad[node.robot_b] != target[node.digits_produced]) {
+  if (kGrid[node.position] != target[node.digits_produced]) {
     return std::nullopt;
   }
   node.digits_produced++;
   return node;
 }
 
-int NumPresses(std::string_view code) {
+// <
+// v<<A
+// v<A<AA>>^A
+
+template <Grid kGrid>
+std::uint64_t NumPresses(std::string_view target, const Costs& costs) {
   Frontier frontier;
-  VisitedSet visited;
+  VisitedSet<kGrid> visited;
   frontier.Push({
-      .hand = kArrows['A'],
-      .robot_a = kArrows['A'],
-      .robot_b = kNumpad['A'],
-      .path = {},
-      .cost = 0,
+      .position = kGrid['A'],
       .digits_produced = 0,
+      .cost = 0,
   });
   while (!frontier.Empty()) {
     const Frontier::Node node = frontier.Pop();
     if (!visited.Insert(node)) continue;
-    if (node.digits_produced == code.size()) return node.cost;
+    if (node.digits_produced == target.size()) return node.cost;
     for (char action : {'A', '<', '>', '^', 'v'}) {
-      const std::optional<Frontier::Node> next = TryAction(code, node, action);
+      const std::optional<Frontier::Node> next =
+          TryAction<kGrid>(target, node, action, costs);
       if (next) frontier.Push(*next);
     }
   }
   throw std::runtime_error("no valid sequence");
 }
 
-int Part1(const Input& input) {
-  int total = 0;
+// When we only have to move in a straight line, we move directly there.
+// When we need a turn, we can either go L/R before U/D or vice versa.
+// The choice seems arbitrary, but it can actually impact the length of the path
+// for higher levels. The example input contains "379A" which demonstrates this.
+// Specifically, the 7 is the interesting bit:
+//
+//     7
+//
+// There are two shortest paths for the last robot to produce 7:
+//
+// ul: ^^<<A
+// lu: <<^^A
+//
+// This choice of path doesn't directly impact the length of the shortest path
+// for the second-last robot:
+//
+// ul: <AAv<AA>>^A
+// lu: v<<AA>^AA>A
+//
+// But the path for the third-last robot is longer in the up-then-left case:
+//
+// ul: v<<A>>^AAv<A<A>>^AAvAA<^A>A
+// lu: <vA<AA>>^AAvA<^A>AAvA^A
+//
+// More generally, we need to optimize our choice for a robot's path based on
+// the robot two layers up from it, because:
+//
+//   * The robot which is one layer up pays a cost for each change in direction,
+//     which we can account for by only turning once and not twice.
+//   * The robot which is one layer up will always start and finish at `A`.
+//   * The robot which is two layers up pays a cost for the distance between
+//     each consecutive instruction for the robot below it.
+//
+// Solving strategies:
+//
+// A* on the whole stack of robots results in too many states, so that's out.
+//
+// Insight: when our goal is to type `A`, all the robots will return to the `A`
+// position, so we can split the shortest path into the part before that `A` and
+// the part after that `A`.
+//
+// Rough idea: solve incrementally, starting at the arrow keys we control.
+//
+// For each depth, establish the shortest sequence of presses required to
+// produce each of the five instructions `<`, `>`, `^`, `v`, `A` on the next
+// layer by doing an A* search over the next layer space using the cost per
+// steps from the previous layer.
+//
+// This works because each time we produce an output at the next layer, all
+// robots except the last one must have reset to the `A` position to communicate
+// the key press, so there is no interaction between sequences for outputs.
+
+template <int kNumInnerRobots, bool kDebug = false>
+std::uint64_t Solve(const Input& input) {
+  Costs cost_buffer[2] = {{{1, 1, 1, 1, 1}}, {}};
+  for (int i = 0; i < kNumInnerRobots; i++) {
+    const Costs& previous_costs = cost_buffer[i % 2];
+    Costs& next_costs = cost_buffer[(i + 1) % 2];
+    static constexpr std::string_view kActions[] = {"A", "<", ">", "^", "v"};
+    if (kDebug) std::println("robot {}:", i);
+    for (std::string_view action : kActions) {
+      next_costs[action[0]] = NumPresses<kArrows>(action, previous_costs);
+      if (kDebug) std::println("  {}: {}", action, next_costs[action[0]]);
+    }
+  }
+  const Costs& costs = cost_buffer[kNumInnerRobots % 2];
+  std::uint64_t total = 0;
   for (int i = 0; i < 5; i++) {
-    const int num_presses = NumPresses(input.codes[i].text);
-    total += input.codes[i].number * num_presses;
+    const std::uint64_t num_presses =
+        NumPresses<kNumpad>(input.codes[i].text, costs);
+    if (kDebug) std::println("{} * {}", num_presses, input.codes[i].number);
+    total += num_presses * input.codes[i].number;
   }
   return total;
 }
@@ -216,8 +282,8 @@ Task<void> Day21(tcp::Socket& socket) {
   Input input;
   co_await input.Read(socket);
 
-  const int part1 = Part1(input);
-  const int part2 = 0;
+  const int part1 = Solve<2, true>(input);
+  const int part2 = Solve<25>(input);
 
   char result[32];
   const char* end = std::format_to(result, "{}\n{}\n", part1, part2);
