@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <print>
+#include <source_location>
 
 namespace aoc2024 {
 namespace {
@@ -82,6 +83,7 @@ class Frontier {
   struct Node {
     Vec position;
     std::uint16_t digits_produced;
+    char previous;
     std::uint64_t cost;
   };
 
@@ -106,22 +108,31 @@ class Frontier {
   int size_ = 0;
 };
 
+int ActionIndex(char c) {
+  static constexpr char kActions[] = "A<>v^";
+  for (int i = 0; i < 5; i++) {
+    if (kActions[i] == c) return i;
+  }
+  throw std::logic_error("bad action");
+}
+
 template <Grid kGrid>
 class VisitedSet {
  public:
   bool Insert(const Frontier::Node& node) {
     assert(kGrid.InBounds(node.position));
     const int i = node.position.y * 3 + node.position.x;
-    std::uint16_t& bitmap = data_[node.digits_produced];
+    std::uint16_t& bitmap =
+        data_[ActionIndex(node.previous)][node.digits_produced];
     if (bitmap & (1 << i)) return false;
     bitmap |= 1 << i;
     return true;
   }
 
  private:
-  // `data_[digits] & (1 << position)` is set if we have already seen this
-  // configuration.
-  std::uint16_t data_[5] = {};
+  // `data_[previous][digits] & (1 << position)` is set if we have already seen
+  // this configuration.
+  std::uint16_t data_[6][5] = {};
 };
 
 Vec Step(Vec position, char c) {
@@ -137,31 +148,29 @@ Vec Step(Vec position, char c) {
 class Costs {
  public:
   Costs() = default;
-  Costs(const std::uint64_t (&initial)[5]) {
-    for (int i = 0; i < 5; i++) values_[i] = initial[i];
+  Costs(std::uint64_t initial) {
+    for (int a = 0; a < 5; a++) {
+      for (int b = 0; b < 5; b++) {
+        values_[a][b] = initial;
+      }
+    }
   }
 
-  auto& operator[](this auto&& self, char c) {
-    return self.values_[Index(c)];
+  auto& operator[](this auto&& self, char previous, char next) {
+    return self.values_[ActionIndex(previous)][ActionIndex(next)];
   }
 
  private:
-  static int Index(char c) {
-    static constexpr char kActions[] = "A<>v^";
-    for (int i = 0; i < 5; i++) {
-      if (kActions[i] == c) return i;
-    }
-    throw std::logic_error("bad action");
-  }
 
-  std::uint64_t values_[5];
+  std::uint64_t values_[5][5];
 };
 
 template <Grid kGrid>
 std::optional<Frontier::Node> TryAction(std::string_view target,
                                         Frontier::Node node, char c,
                                         const Costs& costs) {
-  node.cost += costs[c];
+  node.cost += costs[node.previous, c];
+  node.previous = c;
   if (c != 'A') {
     node.position = Step(node.position, c);
     if (!kGrid.InBounds(node.position)) return std::nullopt;
@@ -179,12 +188,14 @@ std::optional<Frontier::Node> TryAction(std::string_view target,
 // v<A<AA>>^A
 
 template <Grid kGrid>
-std::uint64_t NumPresses(std::string_view target, const Costs& costs) {
+std::uint64_t NumPresses(char initial, std::string_view target,
+                         const Costs& costs) {
   Frontier frontier;
   VisitedSet<kGrid> visited;
   frontier.Push({
-      .position = kGrid['A'],
+      .position = kGrid[initial],
       .digits_produced = 0,
+      .previous = 'A',
       .cost = 0,
   });
   while (!frontier.Empty()) {
@@ -252,25 +263,40 @@ std::uint64_t NumPresses(std::string_view target, const Costs& costs) {
 // robots except the last one must have reset to the `A` position to communicate
 // the key press, so there is no interaction between sequences for outputs.
 
-template <int kNumInnerRobots, bool kDebug = false>
+// Inductively:
+//
+// Inductive state: costs[prev][next] is the cost of pressing `next` given that
+// the arm is currently hovering over `prev`.
+//
+// Base case: `costs` refer to the cost of moving our hand. There is no
+// interaction between consecutive key presses because our hand does not move in
+// steps. All costs are `1`.
+//
+// ith case: we can use BFS to find the cost of pressing each button on the next
+// keyboard. Each sequence will involve moving robot i's hand from one position
+// to another. We need all pairs, not just sequences starting at `A`.
+
+template <int kNumInnerRobots>
 std::uint64_t Solve(const Input& input) {
-  Costs cost_buffer[2] = {{{1, 1, 1, 1, 1}}, {}};
+  Costs cost_buffer[2] = {Costs(1), Costs()};
   for (int i = 0; i < kNumInnerRobots; i++) {
+    std::println("layer {}...", i);
     const Costs& previous_costs = cost_buffer[i % 2];
     Costs& next_costs = cost_buffer[(i + 1) % 2];
     static constexpr std::string_view kActions[] = {"A", "<", ">", "^", "v"};
-    if (kDebug) std::println("robot {}:", i);
-    for (std::string_view action : kActions) {
-      next_costs[action[0]] = NumPresses<kArrows>(action, previous_costs);
-      if (kDebug) std::println("  {}: {}", action, next_costs[action[0]]);
+    for (std::string_view previous : kActions) {
+      for (std::string_view next : kActions) {
+        next_costs[previous[0], next[0]] =
+            NumPresses<kArrows>(previous[0], next, previous_costs);
+      }
     }
   }
   const Costs& costs = cost_buffer[kNumInnerRobots % 2];
   std::uint64_t total = 0;
   for (int i = 0; i < 5; i++) {
     const std::uint64_t num_presses =
-        NumPresses<kNumpad>(input.codes[i].text, costs);
-    if (kDebug) std::println("{} * {}", num_presses, input.codes[i].number);
+        NumPresses<kNumpad>('A', input.codes[i].text, costs);
+    std::println("{} * {}", num_presses, input.codes[i].number);
     total += num_presses * input.codes[i].number;
   }
   return total;
@@ -282,8 +308,8 @@ Task<void> Day21(tcp::Socket& socket) {
   Input input;
   co_await input.Read(socket);
 
-  const int part1 = Solve<2, true>(input);
-  const int part2 = Solve<25>(input);
+  const std::uint64_t part1 = Solve<2>(input);
+  const std::uint64_t part2 = Solve<25>(input);
 
   char result[32];
   const char* end = std::format_to(result, "{}\n{}\n", part1, part2);
