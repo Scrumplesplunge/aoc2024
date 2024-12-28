@@ -81,9 +81,13 @@ constexpr Grid kArrows = {
 class Frontier {
  public:
   struct Node {
+    // Position of the robot hand in this layer.
     Vec position;
+    // Number of digits pressed on the keypad controlled by this robot.
     std::uint16_t digits_produced;
+    // Last instruction given to this robot (initially 'A').
     char previous;
+    // Total cost (buttons pressed by hand) of instructions given to this robot.
     std::uint64_t cost;
   };
 
@@ -161,7 +165,8 @@ class Costs {
   }
 
  private:
-
+  // `values_[a][b]` is the cost (in buttons pressed by hand) of moving the
+  // robot hand in this layer from position `a` to position `b`.
   std::uint64_t values_[5][5];
 };
 
@@ -182,10 +187,6 @@ std::optional<Frontier::Node> TryAction(std::string_view target,
   node.digits_produced++;
   return node;
 }
-
-// <
-// v<<A
-// v<A<AA>>^A
 
 template <Grid kGrid>
 std::uint64_t NumPresses(char initial, std::string_view target,
@@ -211,76 +212,10 @@ std::uint64_t NumPresses(char initial, std::string_view target,
   throw std::runtime_error("no valid sequence");
 }
 
-// When we only have to move in a straight line, we move directly there.
-// When we need a turn, we can either go L/R before U/D or vice versa.
-// The choice seems arbitrary, but it can actually impact the length of the path
-// for higher levels. The example input contains "379A" which demonstrates this.
-// Specifically, the 7 is the interesting bit:
-//
-//     7
-//
-// There are two shortest paths for the last robot to produce 7:
-//
-// ul: ^^<<A
-// lu: <<^^A
-//
-// This choice of path doesn't directly impact the length of the shortest path
-// for the second-last robot:
-//
-// ul: <AAv<AA>>^A
-// lu: v<<AA>^AA>A
-//
-// But the path for the third-last robot is longer in the up-then-left case:
-//
-// ul: v<<A>>^AAv<A<A>>^AAvAA<^A>A
-// lu: <vA<AA>>^AAvA<^A>AAvA^A
-//
-// More generally, we need to optimize our choice for a robot's path based on
-// the robot two layers up from it, because:
-//
-//   * The robot which is one layer up pays a cost for each change in direction,
-//     which we can account for by only turning once and not twice.
-//   * The robot which is one layer up will always start and finish at `A`.
-//   * The robot which is two layers up pays a cost for the distance between
-//     each consecutive instruction for the robot below it.
-//
-// Solving strategies:
-//
-// A* on the whole stack of robots results in too many states, so that's out.
-//
-// Insight: when our goal is to type `A`, all the robots will return to the `A`
-// position, so we can split the shortest path into the part before that `A` and
-// the part after that `A`.
-//
-// Rough idea: solve incrementally, starting at the arrow keys we control.
-//
-// For each depth, establish the shortest sequence of presses required to
-// produce each of the five instructions `<`, `>`, `^`, `v`, `A` on the next
-// layer by doing an A* search over the next layer space using the cost per
-// steps from the previous layer.
-//
-// This works because each time we produce an output at the next layer, all
-// robots except the last one must have reset to the `A` position to communicate
-// the key press, so there is no interaction between sequences for outputs.
-
-// Inductively:
-//
-// Inductive state: costs[prev][next] is the cost of pressing `next` given that
-// the arm is currently hovering over `prev`.
-//
-// Base case: `costs` refer to the cost of moving our hand. There is no
-// interaction between consecutive key presses because our hand does not move in
-// steps. All costs are `1`.
-//
-// ith case: we can use BFS to find the cost of pressing each button on the next
-// keyboard. Each sequence will involve moving robot i's hand from one position
-// to another. We need all pairs, not just sequences starting at `A`.
-
 template <int kNumInnerRobots>
 std::uint64_t Solve(const Input& input) {
   Costs cost_buffer[2] = {Costs(1), Costs()};
   for (int i = 0; i < kNumInnerRobots; i++) {
-    std::println("layer {}...", i);
     const Costs& previous_costs = cost_buffer[i % 2];
     Costs& next_costs = cost_buffer[(i + 1) % 2];
     static constexpr std::string_view kActions[] = {"A", "<", ">", "^", "v"};
@@ -296,7 +231,6 @@ std::uint64_t Solve(const Input& input) {
   for (int i = 0; i < 5; i++) {
     const std::uint64_t num_presses =
         NumPresses<kNumpad>('A', input.codes[i].text, costs);
-    std::println("{} * {}", num_presses, input.codes[i].number);
     total += num_presses * input.codes[i].number;
   }
   return total;
