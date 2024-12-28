@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <bitset>
+#include <generator>
 #include <map>
 #include <print>
 
@@ -51,82 +52,79 @@ struct Input {
       nodes[i].neighbors.push_back(j);
       nodes[j].neighbors.push_back(i);
     }
+
+    for (int i = 0; i < next_index; i++) {
+      std::ranges::sort(nodes[i].neighbors);
+    }
   }
-
-  // struct Node {
-  //   std::uint16_t parent;
-  //   std::uint8_t size;
-  //   std::uint8_t num_ts;
-  // };
-
-  // Node* FindRoot(Node* node) {
-  //   while (node != &nodes[node->parent]) {
-  //     Node* next = &nodes[node->parent];
-  //     node->parent = next->parent;
-  //     node = next;
-  //   }
-  //   return node;
-  // }
-
-  // void Link(Node* a, Node* b) {
-  //   a = FindRoot(a);
-  //   b = FindRoot(b);
-  //   if (a == b) return;
-  //   if (a->size < b->size) {
-  //     a->parent = b->parent;
-  //     b->size += a->size;
-  //     b->num_ts += a->num_ts;
-  //   } else {
-  //     b->parent = a->parent;
-  //     a->size += b->size;
-  //     a->num_ts += b->num_ts;
-  //   }
-  // }
-
-  // Node nodes[26 * 26];
 
   std::vector<Node> nodes;
 };
 
 bool HasT(int id) { return id / 26 == 't' - 'a'; }
 
-// 19384 too high
-//   (enforced ijk ordering to avoid double counting)
-// 3241 too high
-//   (check that k connects back to i)
-// 2666 too high
-//   (fix bug where I was checking HasT on an index instead of an id)
-// 2590 wrong answer
-//   (I didn't read the question, I was counting any T, not just a starting T)
+std::generator<std::span<const int>> ConnectedGroups(
+    std::vector<int>& stack, std::span<const Input::Node> nodes) {
+  const int back = stack.back();
+  co_yield stack;
+  for (int i : nodes[back].neighbors) {
+    if (i <= back) continue;
+    if (!std::ranges::includes(nodes[i].neighbors, stack)) continue;
+    stack.push_back(i);
+    co_yield std::ranges::elements_of(ConnectedGroups(stack, nodes));
+    stack.pop_back();
+  }
+}
+
+std::generator<std::span<const int>> ConnectedGroups(
+    std::span<const Input::Node> nodes) {
+  const int n = nodes.size();
+  for (int i = 0; i < n; i++) {
+    std::vector<int> stack = {i};
+    co_yield std::ranges::elements_of(ConnectedGroups(stack, nodes));
+  }
+}
+
+std::string ToString(std::span<const int> group,
+                     std::span<const Input::Node> nodes) {
+  char result[128];
+  char* out = result;
+  bool first = true;
+  for (int i : group) {
+    if (first) {
+      first = false;
+    } else {
+      *out++ = ',';
+    }
+    *out++ = nodes[i].id / 26 + 'a';
+    *out++ = nodes[i].id % 26 + 'a';
+  }
+  return std::string(result, out - result);
+}
+
 int Part1(const Input& input) {
   int total = 0;
-  const int n = input.nodes.size();
-  for (int i = 0; i < n; i++) {
-    for (int j : input.nodes[i].neighbors) {
-      if (j <= i) continue;
-      for (int k : input.nodes[j].neighbors) {
-        if (k <= j) continue;
-        if (!std::ranges::contains(input.nodes[k].neighbors, i)) continue;
-        // i is connected to j by construction.
-        // j is connected to k by construction.
-        // k is connected to i because of the check above.
-        std::print("triple {},{},{}", input.nodes[i].id, input.nodes[j].id,
-                     input.nodes[k].id);
-        if (!HasT(input.nodes[i].id) && !HasT(input.nodes[j].id) &&
-            !HasT(input.nodes[k].id)) {
-          std::println(" has no T");
-          continue;
-        }
-        std::println(" contains a T");
-        total++;
-      }
+  for (std::span<const int> group : ConnectedGroups(input.nodes)) {
+    if (group.size() != 3) continue;
+    int num_ts = 0;
+    for (int i : group) {
+      if (HasT(input.nodes[i].id)) num_ts++;
     }
+    if (num_ts > 0) total++;
   }
   return total;
 }
 
-int Part2(const Input&) {
-  return 0;
+std::string Part2(const Input& input) {
+  std::vector<int> best;
+  for (std::span<const int> group : ConnectedGroups(input.nodes)) {
+    if (group.size() > best.size()) {
+      best = std::vector(group.begin(), group.end());
+    }
+  }
+  std::ranges::sort(best, std::less<>(),
+                    [&](int i) { return input.nodes[i].id; });
+  return ToString(best, input.nodes);
 }
 
 }  // namespace
@@ -136,9 +134,9 @@ Task<void> Day23(tcp::Socket& socket) {
   co_await input.Read(socket);
 
   const int part1 = Part1(input);
-  const int part2 = Part2(input);
+  const std::string part2 = Part2(input);
 
-  char result[32];
+  char result[256];
   const char* end = std::format_to(result, "{}\n{}\n", part1, part2);
   co_await socket.Write(std::span<const char>(result, end - result));
 }
